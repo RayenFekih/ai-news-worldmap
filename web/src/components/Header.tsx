@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import type { ViewMode } from "./MapView";
+import type { FeedStats } from "../hooks/useNewsFeed";
+import HeaderStats from "./HeaderStats";
 
 interface Props {
   mode: ViewMode;
   onToggleMode: () => void;
+  stats: FeedStats;
+  totalCountries: number;
 }
 
-export default function Header({ mode, onToggleMode }: Props) {
+export default function Header({ mode, onToggleMode, stats, totalCountries }: Props) {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -28,6 +32,8 @@ export default function Header({ mode, onToggleMode }: Props) {
         <span className="live-dot" />
         <span className="live-label">LIVE FEED</span>
       </div>
+
+      <HeaderStats stats={stats} totalCountries={totalCountries} />
 
       <div className="header-right">
         <div className="header-clock">

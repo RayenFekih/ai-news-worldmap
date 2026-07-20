@@ -1,4 +1,8 @@
 import os
+import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ERROR_LOGGING_PATH: str = "logs"
 os.makedirs(ERROR_LOGGING_PATH, exist_ok=True)

@@ -3,6 +3,7 @@ import Globe from "react-globe.gl";
 import type { GlobeMethods } from "react-globe.gl";
 import type { MapPoint } from "../hooks/useNewsFeed";
 import type { NewsItem } from "../data/types";
+import { RELEVANCE_COLORS, TOPIC_LABELS } from "../data/taxonomy";
 
 interface Props {
   points: MapPoint[];
@@ -87,10 +88,15 @@ export default function Globe3D({ points, current }: Props) {
         pointsData={points}
         pointLat="lat"
         pointLng="lng"
-        pointColor={() => "#5dd3ff"}
+        pointColor={(d) => RELEVANCE_COLORS[(d as MapPoint).topRelevanceTier]}
         pointAltitude={0.012}
         pointRadius={(d) => 0.35 + Math.min((d as MapPoint).count, 5) * 0.06}
         pointsMerge={false}
+        pointLabel={(d) => {
+          const p = d as MapPoint;
+          const topic = p.dominantTopic ? TOPIC_LABELS[p.dominantTopic] : "—";
+          return `<div>${p.iso2} — ${p.count} ${p.count === 1 ? "story" : "stories"}<br/>Top topic: ${topic}</div>`;
+        }}
         ringsData={rings}
         ringLat="lat"
         ringLng="lng"

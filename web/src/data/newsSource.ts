@@ -6,14 +6,15 @@ export interface NewsSource {
 }
 
 /**
- * Reads the bundled static snapshot (public/data/news_data.jsonl, one GDELT-shaped
- * article per line). Fetched at runtime rather than bundled at build time so swapping
- * this for a live source later doesn't change how the rest of the app consumes it.
+ * Reads the bundled static snapshot (public/data/enriched_data.jsonl, one GDELT-shaped
+ * article per line, enriched with LLM classification fields). Fetched at runtime rather
+ * than bundled at build time so swapping this for a live source later doesn't change how
+ * the rest of the app consumes it.
  */
 export class StaticJsonlNewsSource implements NewsSource {
   private readonly url: string;
 
-  constructor(url: string = "/data/news_data.jsonl") {
+  constructor(url: string = "/data/enriched_data.jsonl") {
     this.url = url;
   }
 
@@ -60,6 +61,21 @@ export function normalizeArticle(raw: RawArticle): NewsItem {
     seenDate: parseGdeltDate(raw.seendate),
     socialImage: raw.socialimage?.trim() || null,
     geo: resolveCountry(raw.sourcecountry),
+    isAiRelated: raw.is_ai_related,
+    aiRelevanceConfidence: raw.ai_relevance_confidence,
+    rejectionReason: raw.rejection_reason,
+    titleAr: raw.title_ar,
+    topic: raw.topic,
+    topicAr: raw.topic_ar,
+    entities: raw.entities ?? [],
+    summaryEn: raw.summary_en,
+    summaryAr: raw.summary_ar,
+    menaRelevance: raw.mena_relevance,
+    menaRelevanceAr: raw.mena_relevance_ar,
+    ihorizonsRelevance: raw.ihorizons_relevance,
+    ihorizonsRelevanceAr: raw.ihorizons_relevance_ar,
+    narrationEn: raw.narration_en,
+    narrationAr: raw.narration_ar,
   };
 }
 

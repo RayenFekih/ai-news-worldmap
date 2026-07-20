@@ -1,33 +1,33 @@
 import type { CSSProperties } from "react";
 import type { NewsItem } from "../data/types";
-import { RELEVANCE_COLORS, RELEVANCE_LABELS, TOPIC_COLORS, TOPIC_LABELS, ENTITY_TYPE_COLORS } from "../data/taxonomy";
+import { ENTITY_TYPE_COLORS, RELEVANCE_COLORS, RELEVANCE_LABELS_AR, TOPIC_COLORS } from "../data/taxonomy";
 
 interface Props {
   item: NewsItem | null;
 }
 
-export default function ActiveStoryPanel({ item }: Props) {
+export default function ArabicStoryPanel({ item }: Props) {
   if (!item) {
     return (
-      <section className="panel active-story-panel">
+      <section className="panel arabic-story-panel rtl-text">
         <span className="panel-label">Now Showing</span>
-        <p className="active-story-placeholder">Connecting to the feed…</p>
+        <p className="active-story-placeholder">جاري الاتصال بالخلاصة…</p>
       </section>
     );
   }
 
   return (
-    <section className="panel active-story-panel" key={item.id}>
+    <section className="panel arabic-story-panel rtl-text" key={item.id}>
       <div className="active-story-header">
-        <span className="panel-label">Now Showing</span>
         {item.topic && (
           <span className="topic-badge" style={{ "--badge-color": TOPIC_COLORS[item.topic] } as CSSProperties}>
-            {TOPIC_LABELS[item.topic]}
+            {item.topicAr}
           </span>
         )}
+        <span className="panel-label">Now Showing</span>
       </div>
 
-      <h2 className="active-story-title">{item.narrationEn ?? item.title}</h2>
+      {item.narrationAr && <h2 className="active-story-title-ar">{item.narrationAr}</h2>}
 
       <div className="active-story-meta">
         {item.geo && <span className="meta-flag">{item.geo.flag}</span>}
@@ -37,12 +37,12 @@ export default function ActiveStoryPanel({ item }: Props) {
         <span className="meta-dot">•</span>
         <span className="meta-language">{item.language}</span>
       </div>
-      <p className="active-story-source-caption">Source headline: {item.title}</p>
+      <p className="active-story-source-caption">العنوان الأصلي: {item.title}</p>
 
-      {item.summaryEn && (
+      {item.summaryAr && (
         <>
-          <span className="ai-summary-label">AI Summary:</span>
-          <p className="active-story-summary">{item.summaryEn}</p>
+          <span className="ai-summary-label">ملخص الذكاء الاصطناعي:</span>
+          <p className="active-story-summary-ar">{item.summaryAr}</p>
         </>
       )}
 
@@ -60,12 +60,12 @@ export default function ActiveStoryPanel({ item }: Props) {
       <div className="relevance-badge-row">
         {item.menaRelevance && (
           <span className="relevance-badge" style={{ "--badge-color": RELEVANCE_COLORS[item.menaRelevance] } as CSSProperties}>
-            MENA Relevance: {RELEVANCE_LABELS[item.menaRelevance]}
+            MENA: {RELEVANCE_LABELS_AR[item.menaRelevance]}
           </span>
         )}
         {item.ihorizonsRelevance && (
           <span className="relevance-badge" style={{ "--badge-color": RELEVANCE_COLORS[item.ihorizonsRelevance] } as CSSProperties}>
-            iHorizons Relevance: {RELEVANCE_LABELS[item.ihorizonsRelevance]}
+            iHorizons: {RELEVANCE_LABELS_AR[item.ihorizonsRelevance]}
           </span>
         )}
       </div>

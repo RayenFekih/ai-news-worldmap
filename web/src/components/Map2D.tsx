@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from "react-simple-maps";
 import type { MapPoint } from "../hooks/useNewsFeed";
 import type { NewsItem } from "../data/types";
+import { RELEVANCE_COLORS, TOPIC_LABELS } from "../data/taxonomy";
 
 interface Props {
   points: MapPoint[];
@@ -115,11 +116,15 @@ export default function Map2D({ points, current }: Props) {
             <Marker key={p.iso2} coordinates={[p.lng, p.lat]}>
               <circle
                 r={2.6 + Math.min(p.count, 5) * 0.8}
-                fill="#5dd3ff"
+                fill={RELEVANCE_COLORS[p.topRelevanceTier]}
                 fillOpacity={0.85}
                 stroke="#bdf1ff"
                 strokeWidth={0.6}
-              />
+              >
+                <title>{`${p.iso2} — ${p.count} ${p.count === 1 ? "story" : "stories"} · top topic: ${
+                  p.dominantTopic ? TOPIC_LABELS[p.dominantTopic] : "—"
+                }`}</title>
+              </circle>
             </Marker>
           ))}
 
