@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(npm create *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import nbformat\")",
+      "Bash(uv sync *)",
+      "Bash(uv run *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s -m 3 http://localhost:11434/api/tags)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

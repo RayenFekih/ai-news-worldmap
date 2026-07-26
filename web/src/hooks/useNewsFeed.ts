@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { normalizeArticle, StaticJsonlNewsSource } from "../data/newsSource";
+import { HISTORY_LIMIT, POLL_INTERVAL_MS } from "../data/config";
+import { isLocalToday } from "../data/dateUtils";
+import { normalizeArticle, pickNewArticles, StaticJsonlNewsSource } from "../data/newsSource";
+import { loadRevealTiming, type RevealTiming } from "../data/pipelineConfig";
 import { getYesterdaySnapshot, recordTodaySnapshot } from "../data/topicSnapshotStore";
 import type { EntityType, NewsItem, RelevanceLevel, Topic } from "../data/types";
 
-const MIN_INTERVAL_MS = 9000;
-const MAX_INTERVAL_MS = 14000;
-const HISTORY_LIMIT = 8;
 const TOP_ENTITY_TYPE_LIMIT = 5;
 const RECENT_HEADLINES_LIMIT = 3;
 
@@ -13,10 +13,7 @@ const RELEVANCE_RANK: Record<RelevanceLevel, number> = { HIGH: 3, MEDIUM: 2, LOW
 
 export interface FeedStats {
   totalRevealed: number;
-  uniqueCountries: number;
-  topLanguage: string | null;
   loopsCompleted: number;
-  elapsedMs: number;
 }
 
 export interface MapPoint {
@@ -37,7 +34,7 @@ export interface EntityFrequency {
 export interface RecentHeadline {
   id: string;
   title: string;
-  seenDate: Date;
+  fetchedAt: Date;
   topic: Topic | null;
 }
 
@@ -94,8 +91,21 @@ export interface NewsFeedState {
   corpusInsights: CorpusInsights;
 }
 
-function nextIntervalMs(): number {
-  return MIN_INTERVAL_MS + Math.random() * (MAX_INTERVAL_MS - MIN_INTERVAL_MS);
+function randomInterval(timing: RevealTiming): number {
+  const { revealMinIntervalMs: min, revealMaxIntervalMs: max } = timing;
+  return min + Math.random() * (max - min);
+}
+
+/**
+ * Prefers today-local items (sorted oldest-first) so a healthy pipeline only replays fresh news,
+ * but falls back to the full set rather than ever returning empty — otherwise, once every loaded
+ * item ages out of "today" (e.g. GDELT hasn't produced anything new in a while), playback would
+ * freeze indefinitely instead of continuing to loop through what's already loaded.
+ */
+function selectPlaybackQueue(items: NewsItem[]): NewsItem[] {
+  const sorted = [...items].sort((a, b) => a.fetchedAt.getTime() - b.fetchedAt.getTime());
+  const today = sorted.filter((item) => isLocalToday(item.fetchedAt));
+  return today.length > 0 ? today : sorted;
 }
 
 function topEntitiesOfType(entityCounts: Map<string, EntityFrequency>, type: EntityType): EntityFrequency[] {
@@ -184,14 +194,13 @@ function computeCorpusInsights(allItems: NewsItem[]): CorpusInsights {
     }
   }
 
-  const recentHeadlines: RecentHeadline[] = aiItems
-    .filter((item): item is NewsItem & { seenDate: Date } => item.seenDate !== null)
-    .sort((a, b) => b.seenDate.getTime() - a.seenDate.getTime())
+  const recentHeadlines: RecentHeadline[] = [...aiItems]
+    .sort((a, b) => b.fetchedAt.getTime() - a.fetchedAt.getTime())
     .slice(0, RECENT_HEADLINES_LIMIT)
     .map((item) => ({
       id: item.id,
       title: item.narrationEn ?? item.title,
-      seenDate: item.seenDate,
+      fetchedAt: item.fetchedAt,
       topic: item.topic,
     }));
 
@@ -227,24 +236,33 @@ export function useNewsFeed(): NewsFeedState {
   const [history, setHistory] = useState<NewsItem[]>([]);
   const [points, setPoints] = useState<MapPoint[]>([]);
   const [loopsCompleted, setLoopsCompleted] = useState(0);
-  const [startTime] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
 
   const cursor = useRef(0);
-  const countriesSeen = useRef(new Set<string>());
-  const languageCounts = useRef(new Map<string, number>());
   const pointsByIso2 = useRef(new Map<string, MapPoint>());
   const topicCountsByIso2 = useRef(new Map<string, Map<Topic, number>>());
   const totalRevealed = useRef(0);
 
+  // Queue of today's items in publish order, walked by `cursor` for playback — separate from
+  // `allItems` (the full corpus used for insights) so a background poll never disturbs it.
+  const playbackQueueRef = useRef<NewsItem[]>([]);
+  const knownUrlsRef = useRef(new Set<string>());
+  const hasLoadedRef = useRef(false);
+  const revealTimingRef = useRef<RevealTiming>({ revealMinIntervalMs: 9000, revealMaxIntervalMs: 14000 });
+
   useEffect(() => {
     let cancelled = false;
+    loadRevealTiming().then((timing) => {
+      if (!cancelled) revealTimingRef.current = timing;
+    });
     const source = new StaticJsonlNewsSource();
     source
       .load()
       .then((raw) => {
         if (cancelled) return;
         const items = raw.map(normalizeArticle);
+        knownUrlsRef.current = new Set(raw.map((a) => a.url));
+        playbackQueueRef.current = selectPlaybackQueue(items);
+        hasLoadedRef.current = true;
         setAllItems(items);
         setLoading(false);
       })
@@ -258,21 +276,52 @@ export function useNewsFeed(): NewsFeedState {
     };
   }, []);
 
+  // Periodically re-checks the static snapshot for newly-exported articles and splices any in.
+  // Runs independent of the reveal-scheduling effect below, mutating `playbackQueueRef` in place
+  // (not React state) so it never restarts that effect or skips the ticker ahead.
   useEffect(() => {
-    if (allItems.length === 0) return;
+    const poll = () => {
+      if (!hasLoadedRef.current) return;
+      const source = new StaticJsonlNewsSource();
+      source
+        .load()
+        .then((raw) => {
+          const freshRaw = pickNewArticles(knownUrlsRef.current, raw);
+          if (freshRaw.length === 0) return;
+          for (const article of freshRaw) knownUrlsRef.current.add(article.url);
+
+          const freshItems = freshRaw.map(normalizeArticle);
+          const freshTodayItems = freshItems.filter((item) => isLocalToday(item.fetchedAt));
+          playbackQueueRef.current = [...playbackQueueRef.current, ...freshTodayItems];
+          setAllItems((prev) => [...prev, ...freshItems]);
+        })
+        .catch(() => {
+          // Transient poll failure - keep cycling through what's already loaded, retry next tick.
+        });
+    };
+    const intervalId = window.setInterval(poll, POLL_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
 
     let timeoutId: number;
 
     const reveal = () => {
-      const item = allItems[cursor.current];
+      const item = playbackQueueRef.current[cursor.current];
+      if (!item) {
+        // Playback queue is empty (e.g. right after a local-midnight rollover, before the next
+        // poll brings in today's first item) - keep ticking so a later poll is picked up promptly.
+        timeoutId = window.setTimeout(reveal, randomInterval(revealTimingRef.current));
+        return;
+      }
 
       setHistory((prevHistory) => [item, ...prevHistory].slice(0, HISTORY_LIMIT));
 
       if (item.isAiRelated) {
         totalRevealed.current += 1;
         if (item.geo) {
-          countriesSeen.current.add(item.geo.iso2);
-
           const topicCounts = topicCountsByIso2.current.get(item.geo.iso2) ?? new Map<Topic, number>();
           if (item.topic) {
             topicCounts.set(item.topic, (topicCounts.get(item.topic) ?? 0) + 1);
@@ -310,49 +359,36 @@ export function useNewsFeed(): NewsFeedState {
           });
           setPoints(Array.from(pointsByIso2.current.values()));
         }
-        languageCounts.current.set(item.language, (languageCounts.current.get(item.language) ?? 0) + 1);
       }
 
       cursor.current += 1;
-      if (cursor.current >= allItems.length) {
+      if (cursor.current >= playbackQueueRef.current.length) {
+        // Re-select before looping back to the start - drops anything no longer "local today"
+        // (self-corrects across a midnight rollover), but never leaves the queue empty.
+        playbackQueueRef.current = selectPlaybackQueue(playbackQueueRef.current);
         cursor.current = 0;
         setLoopsCompleted((n) => n + 1);
       }
 
-      timeoutId = window.setTimeout(reveal, nextIntervalMs());
+      timeoutId = window.setTimeout(reveal, randomInterval(revealTimingRef.current));
     };
 
     // Reveal the first story immediately, then keep cycling.
     reveal();
 
     return () => window.clearTimeout(timeoutId);
-  }, [allItems]);
-
-  useEffect(() => {
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(tick);
-  }, []);
+  }, [loading]);
 
   const current = history.find((item) => item.isAiRelated) ?? null;
 
-  const stats: FeedStats = useMemo(() => {
-    let topLanguage: string | null = null;
-    let topCount = 0;
-    for (const [lang, count] of languageCounts.current) {
-      if (count > topCount) {
-        topLanguage = lang;
-        topCount = count;
-      }
-    }
-    return {
+  const stats: FeedStats = useMemo(
+    () => ({
       totalRevealed: totalRevealed.current,
-      uniqueCountries: countriesSeen.current.size,
-      topLanguage,
       loopsCompleted,
-      elapsedMs: now - startTime,
-    };
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history, loopsCompleted, now, startTime]);
+    [history, loopsCompleted],
+  );
 
   const corpusInsights = useMemo(() => computeCorpusInsights(allItems), [allItems]);
 

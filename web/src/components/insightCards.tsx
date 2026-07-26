@@ -7,8 +7,8 @@ const RELEVANCE_TIERS: RelevanceLevel[] = ["HIGH", "MEDIUM", "LOW", "NONE"];
 const UP_COLOR = RELEVANCE_COLORS.HIGH;
 const DOWN_COLOR = "#7f93ac";
 
-function formatRelativeTime(seenDate: Date, now: Date): string {
-  const diffMs = now.getTime() - seenDate.getTime();
+function formatRelativeTime(fetchedAt: Date, now: Date): string {
+  const diffMs = now.getTime() - fetchedAt.getTime();
   const minutes = Math.round(diffMs / 60000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
@@ -189,7 +189,7 @@ export function LiveHeadlinesCard(insights: CorpusInsights) {
             <span className="headline-dot" style={{ background: TOPIC_COLORS[headline.topic] }} />
           )}
           <span className="headline-title">{headline.title}</span>
-          <span className="headline-time">{formatRelativeTime(headline.seenDate, now)}</span>
+          <span className="headline-time">{formatRelativeTime(headline.fetchedAt, now)}</span>
         </div>
       ))}
     </>

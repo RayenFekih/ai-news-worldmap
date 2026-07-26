@@ -59,6 +59,7 @@ export function normalizeArticle(raw: RawArticle): NewsItem {
     language: raw.language,
     sourceCountry: raw.sourcecountry?.trim() || "Unknown",
     seenDate: parseGdeltDate(raw.seendate),
+    fetchedAt: new Date(raw.fetched_at),
     socialImage: raw.socialimage?.trim() || null,
     geo: resolveCountry(raw.sourcecountry),
     isAiRelated: raw.is_ai_related,
@@ -77,6 +78,11 @@ export function normalizeArticle(raw: RawArticle): NewsItem {
     narrationEn: raw.narration_en,
     narrationAr: raw.narration_ar,
   };
+}
+
+/** Articles the caller has not seen yet, diffed on `url` (stable across reloads, unlike `NewsItem.id`). */
+export function pickNewArticles(known: Set<string>, incoming: RawArticle[]): RawArticle[] {
+  return incoming.filter((article) => !known.has(article.url));
 }
 
 function parseGdeltDate(seendate: string): Date | null {

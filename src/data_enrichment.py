@@ -6,8 +6,9 @@ from typing import Any
 import requests
 import trafilatura
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
 
-from src.data_sync import HEADERS
+from src.gdelt_fetch import HEADERS
 from src.prompts import SYSTEM_PROMPT, build_user_prompt
 from src.settings import settings
 
@@ -92,25 +93,27 @@ class EnrichedArticle(BaseModel):
         else:
             if self.rejection_reason is None:
                 raise ValueError("is_ai_related=False requires rejection_reason")
-            # The model sometimes reasonably emits a "no relevance" enum value or an empty entity
-            # list instead of a bare null for a rejected article — treat those as unset too, then
-            # canonicalize to None so downstream consumers see one consistent rejected-article shape.
-            neutral = {"entities": [], "mena_relevance": RelevanceLevel.NONE, "ihorizons_relevance": RelevanceLevel.NONE}
-            populated = []
+            # A small model doesn't always follow "set every other field to null" for a rejected
+            # article - it sometimes fills in a plausible topic/summary/etc. anyway. None of these
+            # fields are ever read for a rejected article, so discard whatever it produced instead
+            # of failing the whole enrichment (a deterministic model - fixed temperature/seed - would
+            # just reproduce the same "invalid" output on every retry, permanently losing the article).
             for f in enrichment_fields:
-                value = getattr(self, f)
-                if value is None:
-                    continue
-                if f in neutral and value == neutral[f]:
-                    setattr(self, f, None)
-                    continue
-                populated.append(f)
-            if populated:
-                raise ValueError(f"is_ai_related=False but enrichment fields set: {populated}")
+                setattr(self, f, None)
         return self
 
 
 _RESPONSE_SCHEMA: dict[str, Any] = EnrichedArticle.model_json_schema()
+
+
+def _get_with_retry(url: str) -> requests.Response:
+    retryer = Retrying(
+        retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout)),
+        wait=wait_fixed(settings.ARTICLE_FETCH_RETRY_WAIT_SECONDS),
+        stop=stop_after_attempt(settings.ARTICLE_FETCH_RETRY_MAX_ATTEMPTS),
+        reraise=True,
+    )
+    return retryer(requests.get, url, headers=HEADERS, timeout=settings.ARTICLE_FETCH_TIMEOUT_SECONDS)
 
 
 def fetch_article_text(url: str) -> str | None:
@@ -118,7 +121,7 @@ def fetch_article_text(url: str) -> str | None:
     if not url:
         return None
     try:
-        response = requests.get(url, headers=HEADERS, timeout=settings.ARTICLE_FETCH_TIMEOUT_SECONDS)
+        response = _get_with_retry(url)
         response.raise_for_status()
     except requests.RequestException as exc:
         logger.warning("Could not fetch article %s: %s", url, exc)
@@ -133,22 +136,30 @@ def fetch_article_text(url: str) -> str | None:
 
 
 def _call_ollama(messages: list[dict[str, str]]) -> dict[str, Any]:
-    response = requests.post(
-        f"{settings.OLLAMA_BASE_URL}/api/chat",
-        json={
-            "model": settings.OLLAMA_MODEL,
-            "messages": messages,
-            "format": _RESPONSE_SCHEMA,
-            "options": {
-                "temperature": settings.OLLAMA_TEMPERATURE,
-                "seed": settings.OLLAMA_SEED,
-                "top_p": 1.0,
-                "repeat_penalty": 1.15,
-                "num_predict": settings.OLLAMA_NUM_PREDICT,
-                "num_ctx": settings.OLLAMA_NUM_CTX,
-            },
-            "stream": False,
+    payload = {
+        "model": settings.OLLAMA_MODEL,
+        "messages": messages,
+        "format": _RESPONSE_SCHEMA,
+        "options": {
+            "temperature": settings.OLLAMA_TEMPERATURE,
+            "seed": settings.OLLAMA_SEED,
+            "top_p": 1.0,
+            "repeat_penalty": 1.15,
+            "num_predict": settings.OLLAMA_NUM_PREDICT,
+            "num_ctx": settings.OLLAMA_NUM_CTX,
         },
+        "stream": False,
+    }
+    retryer = Retrying(
+        retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout)),
+        wait=wait_exponential(multiplier=1, min=settings.OLLAMA_RETRY_WAIT_SECONDS, max=10),
+        stop=stop_after_attempt(settings.OLLAMA_RETRY_MAX_ATTEMPTS),
+        reraise=True,
+    )
+    response = retryer(
+        requests.post,
+        f"{settings.OLLAMA_BASE_URL}/api/chat",
+        json=payload,
         timeout=settings.OLLAMA_TIMEOUT_SECONDS,
     )
     response.raise_for_status()

@@ -1,20 +1,16 @@
+import { localDateKey } from "./dateUtils";
 import type { Topic } from "./types";
 
-const STORAGE_KEY = "ai-news-worldmap:topic-snapshots";
+// Bumped (v2) to invalidate snapshots recorded before the pipeline rewrite - those were captured
+// against a manually-copied, rarely-changing static file and produce misleading flat 0% deltas
+// when compared against genuinely fresh data.
+const STORAGE_KEY = "ai-news-worldmap:topic-snapshots:v2";
 const MAX_ENTRIES = 2;
 
 export interface TopicSnapshot {
   date: string; // "YYYY-MM-DD", local date
   topicCounts: Partial<Record<Topic, number>>;
   totalAiStories: number;
-}
-
-/** Local (not UTC) date key, so it matches what the Header's visible clock shows. */
-function localDateKey(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function readLog(): TopicSnapshot[] {

@@ -60,12 +60,12 @@ export default function ArabicStoryPanel({ item }: Props) {
       <div className="relevance-badge-row">
         {item.menaRelevance && (
           <span className="relevance-badge" style={{ "--badge-color": RELEVANCE_COLORS[item.menaRelevance] } as CSSProperties}>
-            MENA: {RELEVANCE_LABELS_AR[item.menaRelevance]}
+            صلة MENA: {RELEVANCE_LABELS_AR[item.menaRelevance]}
           </span>
         )}
         {item.ihorizonsRelevance && (
           <span className="relevance-badge" style={{ "--badge-color": RELEVANCE_COLORS[item.ihorizonsRelevance] } as CSSProperties}>
-            iHorizons: {RELEVANCE_LABELS_AR[item.ihorizonsRelevance]}
+            صلة iHorizons: {RELEVANCE_LABELS_AR[item.ihorizonsRelevance]}
           </span>
         )}
       </div>

@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
-import type { ViewMode } from "./MapView";
 import type { FeedStats } from "../hooks/useNewsFeed";
 import HeaderStats from "./HeaderStats";
+import type { ViewMode } from "./MapView";
 
 interface Props {
   mode: ViewMode;
   onToggleMode: () => void;
   stats: FeedStats;
-  totalCountries: number;
 }
 
-export default function Header({ mode, onToggleMode, stats, totalCountries }: Props) {
+export default function Header({ mode, onToggleMode, stats }: Props) {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -33,9 +32,10 @@ export default function Header({ mode, onToggleMode, stats, totalCountries }: Pr
         <span className="live-label">LIVE FEED</span>
       </div>
 
-      <HeaderStats stats={stats} totalCountries={totalCountries} />
+      <HeaderStats stats={stats} />
 
       <div className="header-right">
+        <img src="/logos/iHorizons_logo_3.png" alt="iHorizons" className="ihorizons-logo" />
         <div className="header-clock">
           <span className="clock-time">{time}</span>
           <span className="clock-date">{date}</span>

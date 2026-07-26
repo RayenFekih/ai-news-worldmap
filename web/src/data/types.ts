@@ -37,6 +37,7 @@ export interface RawArticle {
   domain: string;
   language: string;
   sourcecountry: string;
+  fetched_at: string;
   is_ai_related: boolean;
   ai_relevance_confidence: number;
   rejection_reason: string | null;
@@ -70,6 +71,7 @@ export interface NewsItem {
   language: string;
   sourceCountry: string;
   seenDate: Date | null;
+  fetchedAt: Date;
   socialImage: string | null;
   geo: GeoPoint | null;
   isAiRelated: boolean;

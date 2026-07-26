@@ -99,6 +99,47 @@ def test_enrich_article_not_ai_related_happy_path(mocker):
     assert result.ihorizons_relevance is None
 
 
+def test_enrich_article_not_ai_related_with_hallucinated_fields_still_succeeds(mocker):
+    """A small model doesn't always null every field on rejection - it sometimes fills in a
+    plausible topic/summary/etc. anyway. Those should be discarded, not treated as a failure
+    (a deterministic model, fixed temperature/seed, would otherwise fail identically on every retry
+    and permanently lose the article)."""
+    _mock_fetch_article_text(mocker)
+    contaminated_response = dict(NOT_AI_RELATED_RESPONSE)
+    contaminated_response.update(
+        title_ar="عنوان مترجم",
+        topic="ENTERPRISE_AI",
+        topic_ar="ذكاء اصطناعي للمؤسسات",
+        summary_en="A hallucinated summary the model shouldn't have written.",
+        summary_ar="ملخص لم يكن يجب كتابته.",
+        mena_relevance="MEDIUM",
+        mena_relevance_ar="سبب مختلق",
+        ihorizons_relevance="HIGH",
+        ihorizons_relevance_ar="سبب آخر مختلق",
+        narration_ar="سرد",
+        narration_en="narration",
+    )
+    _mock_ollama_response(mocker, contaminated_response)
+
+    result = enrich_article(SAMPLE_ARTICLE)
+
+    assert isinstance(result, EnrichedArticle)
+    assert result.is_ai_related is False
+    assert result.rejection_reason == "Not primarily about artificial intelligence."
+    assert result.title_ar is None
+    assert result.topic is None
+    assert result.topic_ar is None
+    assert result.summary_en is None
+    assert result.summary_ar is None
+    assert result.mena_relevance is None
+    assert result.mena_relevance_ar is None
+    assert result.ihorizons_relevance is None
+    assert result.ihorizons_relevance_ar is None
+    assert result.narration_ar is None
+    assert result.narration_en is None
+    assert result.entities is None
+
+
 def test_enrich_article_malformed_json_returns_none(mocker):
     _mock_fetch_article_text(mocker)
     mock_response = mocker.Mock()
@@ -210,3 +251,45 @@ def test_fetch_article_text_empty_url_returns_none_without_request(mocker):
 
     assert fetch_article_text("") is None
     mock_get.assert_not_called()
+
+
+def test_fetch_article_text_retries_on_connection_error_then_succeeds(mocker):
+    mock_response = mocker.Mock()
+    mock_response.raise_for_status = mocker.Mock()
+    mock_response.text = _SAMPLE_HTML
+    mock_get = mocker.patch(
+        "src.data_enrichment.requests.get",
+        side_effect=[requests.exceptions.ConnectionError("refused"), mock_response],
+    )
+
+    text = fetch_article_text("https://example.com/article")
+
+    assert text is not None
+    assert mock_get.call_count == 2
+
+
+def test_fetch_article_text_gives_up_after_max_retry_attempts(mocker, monkeypatch):
+    monkeypatch.setattr("src.data_enrichment.settings.ARTICLE_FETCH_RETRY_MAX_ATTEMPTS", 2)
+    mock_get = mocker.patch(
+        "src.data_enrichment.requests.get",
+        side_effect=requests.exceptions.ConnectionError("refused"),
+    )
+
+    assert fetch_article_text("https://example.com/unreachable") is None
+    assert mock_get.call_count == 2
+
+
+def test_call_ollama_retries_on_timeout_then_succeeds(mocker):
+    mock_response = mocker.Mock()
+    mock_response.raise_for_status = mocker.Mock()
+    mock_response.json.return_value = {"message": {"content": json.dumps(NOT_AI_RELATED_RESPONSE)}}
+    mock_post = mocker.patch(
+        "src.data_enrichment.requests.post",
+        side_effect=[requests.exceptions.Timeout("timed out"), mock_response],
+    )
+    _mock_fetch_article_text(mocker)
+
+    result = enrich_article(SAMPLE_ARTICLE)
+
+    assert isinstance(result, EnrichedArticle)
+    assert mock_post.call_count == 2

@@ -20,7 +20,6 @@ export default function App() {
         mode={mode}
         onToggleMode={() => setMode((m) => (m === "3d" ? "2d" : "3d"))}
         stats={stats}
-        totalCountries={corpusInsights.countryCount}
       />
 
       <main className="stage">
